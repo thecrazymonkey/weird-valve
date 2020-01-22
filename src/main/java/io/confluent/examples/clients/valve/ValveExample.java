@@ -8,7 +8,11 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.AuthorizationException;
+import org.apache.kafka.common.errors.OutOfOrderSequenceException;
+import org.apache.kafka.common.errors.ProducerFencedException;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 
@@ -74,45 +78,57 @@ public class ValveExample {
             while (true) {
                 final long current_time = System.currentTimeMillis();
                 final ConsumerRecords<Object, Object> records = consumer.poll(Duration.ofMillis(100));
-                if (!records.isEmpty()) {
-                    final Map<TopicPartition, OffsetAndMetadata> currentOffsets = new HashMap<>();
-                    // store transactionally
-                    producer.beginTransaction();
-                    for (final ConsumerRecord<Object, Object> record : records) {
-                        record_count++;
-                        // get record create timestamp
-                        final long delta = current_time - record.timestamp();
-                        // check if time difference vs local time is over the configured threshold
-                        if (delta > backlog_time) {
-                            // too old - valve into valve topic
-                            final ProducerRecord<Object, Object> recordInfo = new ProducerRecord<Object, Object>(valve_topic, record.key(), record.value());
-                            producer.send(recordInfo);
-                            valve_count++;
-                        } else {
-                            // else send to error if time is up - doing this only in non-valved
-                            if (record_count % error_on_count == 0) {
-                                // send some % to fail topic
-                                final ProducerRecord<Object, Object> recordInfo = new ProducerRecord<Object, Object>(error_topic, record.key(), record.value());
+                try {
+                    if (!records.isEmpty()) {
+                        final Map<TopicPartition, OffsetAndMetadata> currentOffsets = new HashMap<>();
+                        // store transactionally
+                        producer.beginTransaction();
+                        for (final ConsumerRecord<Object, Object> record : records) {
+                            record_count++;
+                            // get record create timestamp
+                            final long delta = current_time - record.timestamp();
+                            // check if time difference vs local time is over the configured threshold
+                            if (delta > backlog_time) {
+                                // too old - valve into valve topic
+                                final ProducerRecord<Object, Object> recordInfo = new ProducerRecord<Object, Object>(valve_topic, record.key(), record.value());
                                 producer.send(recordInfo);
-                                error_count++;
-                            } else // just simulate some processing
-                                Thread.sleep(sleep_time);
+                                valve_count++;
+                            } else {
+                                // else send to error if time is up - doing this only in non-valved
+                                if (record_count % error_on_count == 0) {
+                                    // send some % to fail topic
+                                    final ProducerRecord<Object, Object> recordInfo = new ProducerRecord<Object, Object>(error_topic, record.key(), record.value());
+                                    producer.send(recordInfo);
+                                    error_count++;
+                                } else // just simulate some processing
+                                    Thread.sleep(sleep_time);
+                            }
+                            if (record_count % status_on_count == 0) {
+                                // some sort of status print
+                                final Date time_string = new Date();
+                                System.out.println(time_string + " ********************************");
+                                System.out.println("Processed: " + record_count);
+                                System.out.println("Valved   : " + valve_count);
+                                System.out.println("Errored  : " + error_count);
+                                System.out.println(time_string + "---------------------------------");
+                            }
+                            currentOffsets.put(new TopicPartition(record.topic(), record.partition()), new OffsetAndMetadata(record.offset() + 1));
                         }
-                        if (record_count % status_on_count == 0) {
-                            // some sort of status print
-                            final Date time_string = new Date();
-                            System.out.println(time_string + " ********************************");
-                            System.out.println("Processed: " + record_count);
-                            System.out.println("Valved   : " + valve_count);
-                            System.out.println("Errored  : " + error_count);
-                            System.out.println(time_string + "---------------------------------");
-                        }
-                        currentOffsets.put(new TopicPartition(record.topic(), record.partition()), new OffsetAndMetadata(record.offset()+1));
+                        // commit offsets as a part of the transaction
+                        producer.sendOffsetsToTransaction(currentOffsets, group_id);
+                        // final commit
+                        producer.commitTransaction();
                     }
-                    // commit offsets as a part of the transaction
-                    producer.sendOffsetsToTransaction(currentOffsets, group_id);
-                    // final commit
-                    producer.commitTransaction();
+                } catch (ProducerFencedException | OutOfOrderSequenceException | AuthorizationException e) {
+                        e.printStackTrace();
+                        // We can't recover from these exceptions, so our only option is to close the producer and exit.
+                        producer.close();
+                        break;
+                }
+                catch (final KafkaException e) {
+                        e.printStackTrace();
+                        // For all other exceptions, just abort the transaction and try again.
+                        producer.abortTransaction();
                 }
             }
         } catch (final InterruptedException e) {
