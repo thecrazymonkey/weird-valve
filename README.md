@@ -11,7 +11,8 @@ Consumer:
     input.topics - input topic list (default INPUT_TOPIC)
     status.count - counter for status printout (default every 100 messages)
     error.count - counter for sending messages to error topic (every 10000th message)
-
+    backlog.time.ms - age threshold for messages that should be sent to valve (300000ms ie 5 minutes) - taken from the message create timestamp
+    
 Producer:
 
     acks - durability (default all)
