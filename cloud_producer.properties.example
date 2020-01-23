@@ -1,0 +1,12 @@
+client.id=valve
+ssl.endpoint.identification.algorithm=https
+sasl.mechanism=PLAIN
+request.timeout.ms=20000
+bootstrap.servers=pkc-43n10.us-central1.gcp.confluent.cloud:9092
+retry.backoff.ms=500
+sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="APIKEY" password="Secret";
+security.protocol=SASL_SSL
+acks: all
+transactional.id: valve
+valve.topic: VALVE_TOPIC
+error.topic: ERROR_TOPIC
