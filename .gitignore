@@ -1,1 +1,4 @@
 /target/
+/cloud_producer.properties
+/cloud_consumer.properties
+/perf_producer.properties
