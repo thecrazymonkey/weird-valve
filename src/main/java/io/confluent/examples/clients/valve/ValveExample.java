@@ -71,11 +71,11 @@ public class ValveExample {
             final Long sleep_time = Long.parseLong(propsConsumer.getProperty("processing.time.ms", "200"));
             // default backlog time is 5 minutes
             final Long backlog_time = Long.parseLong(propsConsumer.getProperty("backlog.time.ms", "300000"));
+            System.out.println(backlog_time);
             final Long status_on_count = Long.parseLong(propsConsumer.getProperty("status.count", "100"));
             final Long error_on_count = Long.parseLong(propsConsumer.getProperty("error.count", "10000"));
             long record_count = 0, error_count = 0, valve_count = 0;
             while (true) {
-                final long current_time = System.currentTimeMillis();
                 final ConsumerRecords<Object, Object> records = consumer.poll(Duration.ofMillis(100));
                 try {
                     if (!records.isEmpty()) {
@@ -85,6 +85,7 @@ public class ValveExample {
                         for (final ConsumerRecord<Object, Object> record : records) {
                             record_count++;
                             // get record create timestamp
+                            final long current_time = System.currentTimeMillis();
                             final long delta = current_time - record.timestamp();
                             // check if time difference vs local time is over the configured threshold
                             if (delta > backlog_time) {
